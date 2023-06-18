@@ -16,6 +16,7 @@ import traceback
 def thread_wrapped_func(func):
     """
     Wraps a process entry point to make it work with OpenMP.
+    Why this is needed? to start a thread?
     """
     @wraps(func)
     def decorated_function(*args, **kwargs):
