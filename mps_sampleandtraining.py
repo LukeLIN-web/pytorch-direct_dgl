@@ -1,11 +1,10 @@
-import dgl
+
 import numpy as np
 import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import torch.multiprocessing as mp
-import dgl.nn.pytorch as dglnn
 import time
 import math
 import argparse
@@ -13,9 +12,7 @@ from torch.nn.parallel import DistributedDataParallel
 import tqdm
 import utils
 
-
 from utils import thread_wrapped_func
-from load_graph import load_reddit, inductive_split
 
 
 def producer(q, ):
@@ -24,6 +21,7 @@ def producer(q, ):
 
 def run(q, args, device):
     th.cuda.set_device(device)
+
 
 
 if __name__ == '__main__':
@@ -71,12 +69,6 @@ if __name__ == '__main__':
     event1 = ctx.Event()
     event2 = ctx.Event()
 
-    # Indices and the their lengths shared between the producer and the training processes
-    idxf1_len = th.zeros([1], dtype=th.long).share_memory_()
-    idxf2_len = th.zeros([1], dtype=th.long).share_memory_()
-    idxl1_len = th.zeros([1], dtype=th.long).share_memory_()
-    idxl2_len = th.zeros([1], dtype=th.long).share_memory_()
-
     print("Producer Start")
     producer_inst = ctx.Process(target=producer,
                     args=(q, device))
@@ -90,7 +82,7 @@ if __name__ == '__main__':
 
     print("Run Start")
     p = mp.Process(target=thread_wrapped_func(run),
-                    args=(q, args, device, idxf1_len, idxf2_len, idxl1_len, idxl2_len, event1, event2))
+                    args=(q, args, device))
     p.start()
 
     p.join()
