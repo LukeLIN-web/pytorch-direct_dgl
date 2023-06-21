@@ -160,9 +160,7 @@ def producer(q, idxf1, idxf2, idxl1, idxl2, idxf1_len, idxf2_len, idxl1_len, idx
 #### Entry point
 
 def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, idxf2_len, idxl1_len, idxl2_len, event1, event2):
-    print("Running on device {}".format(device))
     th.cuda.set_device(device)
-    print("Loading data")
     # Unpack data
     n_classes, train_g, val_g, test_g = data
 
@@ -176,7 +174,8 @@ def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, 
     # Create PyTorch DataLoader for constructing blocks
     sampler = dgl.dataloading.MultiLayerNeighborSampler(
         [int(fanout) for fanout in args.fan_out.split(',')])
-    dataloader = dgl.dataloading.NodeDataLoader(
+    # dataloader = dgl.dataloading.NodeDataLoader(
+    dataloader = dgl.dataloading.DataLoader(
         train_g,
         train_nid,
         sampler,
