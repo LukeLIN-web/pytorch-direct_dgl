@@ -121,8 +121,10 @@ def producer(q, idxf1, idxf2, idxl1, idxl2, idxf1_len, idxf2_len, idxl1_len, idx
     th.cuda.set_device(device)
 
     # Map input tensors into GPU address
-    train_nfeat = train_nfeat.to(device="unified")
-    train_labels = train_labels.to(device="unified")
+    # train_nfeat = train_nfeat.to(device="unified")
+    # train_labels = train_labels.to(device="unified")
+    train_nfeat = dgl.utils.pin_memory_inplace(train_nfeat)
+    train_labels = dgl.utils.pin_memory_inplace(train_labels)
 
     # Create GPU-side ping pong buffers
     in_feat1 = th.zeros(feat_dimension, device=device)
@@ -158,8 +160,9 @@ def producer(q, idxf1, idxf2, idxl1, idxl2, idxf1_len, idxf2_len, idxl1_len, idx
 #### Entry point
 
 def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, idxf2_len, idxl1_len, idxl2_len, event1, event2):
+    print("Running on device {}".format(device))
     th.cuda.set_device(device)
-
+    print("Loading data")
     # Unpack data
     n_classes, train_g, val_g, test_g = data
 
@@ -364,7 +367,7 @@ if __name__ == '__main__':
 
     g, n_classes = load_reddit()
     # Construct graph
-    g = dgl.as_heterograph(g)
+    # g = dgl.as_heterograph(g) # The input is already a DGLGraph.
 
     if args.inductive:
         train_g, val_g, test_g = inductive_split(g)
@@ -426,7 +429,7 @@ if __name__ == '__main__':
         time.sleep(4)
 
     print("Run Start")
-    p = mp.Process(target=thread_wrapped_func(run),
+    p = ctx.Process(target=run,
                     args=(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, idxf2_len, idxl1_len, idxl2_len, event1, event2))
     p.start()
 
