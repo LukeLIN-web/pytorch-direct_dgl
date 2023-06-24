@@ -162,11 +162,11 @@ def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, 
 
     # Unpack data
     n_classes, train_g, val_g, test_g = data
-
+    train_g = train_g.to(device)
     train_mask = train_g.ndata['train_mask']
     val_mask = val_g.ndata['val_mask']
     test_mask = ~(test_g.ndata['train_mask'] | test_g.ndata['val_mask'])
-    train_nid = train_mask.nonzero().squeeze()
+    train_nid = train_mask.nonzero().squeeze().to(device)
     val_nid = val_mask.nonzero().squeeze()
     test_nid = test_mask.nonzero().squeeze()
 
@@ -179,8 +179,7 @@ def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, 
         sampler,
         batch_size=args.batch_size,
         shuffle=True,
-        drop_last=False,
-        num_workers=args.num_workers)
+        drop_last=False)
 
     # Define model and optimizer
     model = SAGE(in_feats, args.num_hidden, n_classes, args.num_layers, F.relu, args.dropout)
