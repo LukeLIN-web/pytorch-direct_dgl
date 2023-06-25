@@ -9,13 +9,12 @@ import dgl.nn.pytorch as dglnn
 import time
 import math
 import argparse
-from torch.nn.parallel import DistributedDataParallel
 import tqdm
 import utils
 
 
 from utils import thread_wrapped_func
-from load_graph import load_reddit, inductive_split
+from load_graph import load_reddit, inductive_split,load_ogb
 
 class SAGE(nn.Module):
     def __init__(self,
@@ -131,10 +130,10 @@ def producer(q, idxf1, idxf2, idxl1, idxl2, idxf1_len, idxf2_len, idxl1_len, idx
     in_label2 = th.zeros(label_dimension, dtype=th.long, device=device)
 
     # Termination signal
-    finish = th.ones(1, dtype=th.bool)
+    running = th.ones(1, dtype=th.bool)
 
     # Share with the training process
-    q.put((in_feat1, in_feat2, in_label1, in_label2, finish))
+    q.put((in_feat1, in_feat2, in_label1, in_label2, running))
     print("Allocation done")
 
     flag = 1
@@ -143,7 +142,7 @@ def producer(q, idxf1, idxf2, idxl1, idxl2, idxf1_len, idxf2_len, idxl1_len, idx
         while(1):
             event1.wait()
             event1.clear()
-            if not finish:
+            if not running:
                 break
             if flag:
                 th.index_select(train_nfeat, 0, idxf1[0:idxf1_len].to(device=device), out=in_feat1[0:idxf1_len])
@@ -155,33 +154,39 @@ def producer(q, idxf1, idxf2, idxl1, idxl2, idxf1_len, idxf2_len, idxl1_len, idx
             th.cuda.synchronize()
             event2.set()
 
-#### Entry point
 
 def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, idxf2_len, idxl1_len, idxl2_len, event1, event2):
     th.cuda.set_device(device)
-
-    # Unpack data
     n_classes, train_g, val_g, test_g = data
-    train_g = train_g.to(device)
+
     train_mask = train_g.ndata['train_mask']
     val_mask = val_g.ndata['val_mask']
     test_mask = ~(test_g.ndata['train_mask'] | test_g.ndata['val_mask'])
-    train_nid = train_mask.nonzero().squeeze().to(device)
+    train_nid = train_mask.nonzero().squeeze()
     val_nid = val_mask.nonzero().squeeze()
     test_nid = test_mask.nonzero().squeeze()
-
-    # Create PyTorch DataLoader for constructing blocks
     sampler = dgl.dataloading.MultiLayerNeighborSampler(
         [int(fanout) for fanout in args.fan_out.split(',')])
-    dataloader = dgl.dataloading.NodeDataLoader(
-        train_g,
-        train_nid,
-        sampler,
-        batch_size=args.batch_size,
-        shuffle=True,
-        drop_last=False)
+    if args.gpu >= 0:
+        train_g = train_g.to(device)
+        train_nid = train_nid.to(device)
+        dataloader = dgl.dataloading.NodeDataLoader(
+            train_g,
+            train_nid,
+            sampler,
+            device=device,
+            batch_size=args.batch_size,
+            shuffle=True,
+            drop_last=False)
+    else:
+        dataloader = dgl.dataloading.NodeDataLoader(
+            train_g,
+            train_nid,
+            sampler,
+            batch_size=args.batch_size,
+            shuffle=True,
+            drop_last=False)
 
-    # Define model and optimizer
     model = SAGE(in_feats, args.num_hidden, n_classes, args.num_layers, F.relu, args.dropout)
     model = model.to(device)
     loss_fcn = nn.CrossEntropyLoss()
@@ -240,20 +245,20 @@ def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, 
 
             event1.set()
 
-            event2.wait()
+            event2.wait() # 等待index select
             event2.clear()
 
             # Load the input features as well as output labels
             if not flag:
-                batch_inputs = in_feat1[0:input_nodes_n]
+                batch_feats = in_feat1[0:input_nodes_n]
                 batch_labels = in_label1[0:seeds_n]
             else:
-                batch_inputs = in_feat2[0:input_nodes_n]
+                batch_feats = in_feat2[0:input_nodes_n]
                 batch_labels = in_label2[0:seeds_n]
 
             blocks = [block.int().to(device) for block in blocks_temp]
             # Compute loss and prediction
-            batch_pred = model(blocks, batch_inputs)
+            batch_pred = model(blocks, batch_feats)
             loss = loss_fcn(batch_pred, batch_labels)
             optimizer.zero_grad()
             loss.backward()
@@ -262,7 +267,7 @@ def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, 
             flag = (flag == False)
             input_nodes_n = len(input_nodes)
             seeds_n = len(seeds)
-            blocks_temp = blocks_next
+            blocks_temp = blocks_next # 训练的同时采样. 训练完了获得采样的结果. 
 
             iter_tput.append(len(seeds) / (time.time() - tic_step))
             if step % args.log_every == 0:
@@ -291,15 +296,14 @@ def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, 
 
         # Load the input features as well as output labels
         if not flag:
-            batch_inputs = in_feat1[0:input_nodes_n]
+            batch_feats = in_feat1[0:input_nodes_n]
             batch_labels = in_label1[0:seeds_n]
         else:
-            batch_inputs = in_feat2[0:input_nodes_n]
+            batch_feats = in_feat2[0:input_nodes_n]
             batch_labels = in_label2[0:seeds_n]
 
-        # Compute loss and prediction
         blocks = [block.int().to(device) for block in blocks_temp]
-        batch_pred = model(blocks, batch_inputs)
+        batch_pred = model(blocks, batch_feats)
         loss = loss_fcn(batch_pred, batch_labels)
         optimizer.zero_grad()
         loss.backward()
@@ -347,10 +351,11 @@ if __name__ == '__main__':
                            help="Number of sampling processes. Use 0 for no extra process.")
     argparser.add_argument('--inductive', action='store_true',
                            help="Inductive learning setting")
+    argparser.add_argument('--dataset', type=str, default='reddit')
     argparser.add_argument('--mps', type=str, default='0')
     args = argparser.parse_args()
 
-    device = th.device('cuda:%d' % args.gpu)
+    device = th.device('cuda:0') 
     mps = list(map(str, args.mps.split(',')))
 
     # If MPS values are given, then setup MPS
@@ -360,10 +365,10 @@ if __name__ == '__main__':
         utils.mps_server_start(user_id)
         server_pid = utils.mps_get_server_pid()
         time.sleep(4)
-
-    g, n_classes = load_reddit()
-    # Construct graph
-    g = dgl.as_heterograph(g)
+    if args.dataset == 'reddit':
+        g, n_classes = load_reddit()
+    elif args.dataset == 'ogbn-products':
+        g, n_classes = load_ogb()
 
     if args.inductive:
         train_g, val_g, test_g = inductive_split(g)
