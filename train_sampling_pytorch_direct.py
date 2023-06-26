@@ -226,8 +226,7 @@ def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, 
     for epoch in range(args.num_epochs):
         tic = time.time()
 
-        # Loop over the dataloader to sample the computation dependency graph as a list of
-        # blocks.
+        # Loop dataloader to sample the computation dependency graph as a list of blocks.
         for step, (input_nodes, seeds, blocks_next) in enumerate(dataloader):
             tic_step = time.time()
 
@@ -245,7 +244,7 @@ def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, 
 
             event1.set()
 
-            event2.wait() # 等待index select
+            event2.wait() # wait index select,gather features to GPU
             event2.clear()
 
             # Load the input features as well as output labels
@@ -257,7 +256,7 @@ def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, 
                 batch_labels = in_label2[0:seeds_n]
 
             blocks = [block.int().to(device) for block in blocks_temp]
-            # Compute loss and prediction
+
             batch_pred = model(blocks, batch_feats)
             loss = loss_fcn(batch_pred, batch_labels)
             optimizer.zero_grad()
@@ -267,9 +266,10 @@ def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, 
             flag = (flag == False)
             input_nodes_n = len(input_nodes)
             seeds_n = len(seeds)
-            blocks_temp = blocks_next # 训练的同时采样. 训练完了获得采样的结果. 
 
-            iter_tput.append(len(seeds) / (time.time() - tic_step))
+            blocks_temp = blocks_next # 训练的同时采样. 训练完了获得采样的结果. 
+            epochtime = (time.time() - tic_step)
+            iter_tput.append(len(seeds) / epochtime)
             if step % args.log_every == 0:
                 acc = compute_acc(batch_pred, batch_labels)
                 print('Epoch {:05d} | Step {:05d} | Loss {:.4f} | Train Acc {:.4f} | Speed (samples/sec) {:.4f} | GPU {:.1f} MB'.format(
@@ -368,7 +368,7 @@ if __name__ == '__main__':
     if args.dataset == 'reddit':
         g, n_classes = load_reddit()
     elif args.dataset == 'ogbn-products':
-        g, n_classes = load_ogb()
+        g, n_classes = load_ogb('ogbn-products')
 
     if args.inductive:
         train_g, val_g, test_g = inductive_split(g)
@@ -380,7 +380,7 @@ if __name__ == '__main__':
     train_g.create_formats_()
     val_g.create_formats_()
     test_g.create_formats_()
-    # Pack data
+
     data = n_classes, train_g, val_g, test_g
 
     train_nfeat = val_nfeat = test_nfeat = g.ndata.pop('features').share_memory_()
@@ -398,7 +398,7 @@ if __name__ == '__main__':
 
     if float(mps[0]) != 0:
         utils.mps_set_active_thread_percentage(server_pid, mps[0])
-        # Just in case we add a timer to make sure MPS setup is done before we launch producer
+        # Just in case, we make sure MPS setup is done before we launch producer
         time.sleep(4)
 
     # TODO: shared structure declarations can be futher simplified
@@ -407,7 +407,7 @@ if __name__ == '__main__':
     # Synchornization signals
     event1 = ctx.Event()
     event2 = ctx.Event()
-    #what is the difference between  idxf1  and idxf2?
+    # idxf1  and idxf2 are used for two batch pipeline
     # Indices and the their lengths shared between the producer and the training processes
     idxf1 = th.zeros([args.batch_size * fanout_max], dtype=th.long).share_memory_()
     idxf2 = th.zeros([args.batch_size * fanout_max], dtype=th.long).share_memory_()
