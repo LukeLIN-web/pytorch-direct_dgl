@@ -407,7 +407,7 @@ if __name__ == '__main__':
     # Synchornization signals
     event1 = ctx.Event()
     event2 = ctx.Event()
-    # idxf1  and idxf2 are used for two batch pipeline
+    # idxf1 and idxf2 are used for two batch pipeline
     # Indices and the their lengths shared between the producer and the training processes
     idxf1 = th.zeros([args.batch_size * fanout_max], dtype=th.long).share_memory_()
     idxf2 = th.zeros([args.batch_size * fanout_max], dtype=th.long).share_memory_()
