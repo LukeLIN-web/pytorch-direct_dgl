@@ -120,8 +120,10 @@ def producer(q, idxf1, idxf2, idxl1, idxl2, idxf1_len, idxf2_len, idxl1_len, idx
     th.cuda.set_device(device)
 
     # Map input tensors into GPU address
-    train_nfeat = train_nfeat.to(device="unified")
-    train_labels = train_labels.to(device="unified")
+    # train_nfeat = train_nfeat.to(device="unified")
+    # train_labels = train_labels.to(device="unified")
+    train_nfeat = dgl.utils.pin_memory_inplace(train_nfeat)
+    train_labels = dgl.utils.pin_memory_inplace(train_labels)
 
     # Create GPU-side ping pong buffers
     in_feat1 = th.zeros(feat_dimension, device=device)
@@ -145,11 +147,15 @@ def producer(q, idxf1, idxf2, idxl1, idxl2, idxf1_len, idxf2_len, idxl1_len, idx
             if not running:
                 break
             if flag:
-                th.index_select(train_nfeat, 0, idxf1[0:idxf1_len].to(device=device), out=in_feat1[0:idxf1_len])
-                th.index_select(train_labels, 0, idxl1[0:idxl1_len].to(device=device), out=in_label1[0:idxl1_len])
+                # th.index_select(train_nfeat, 0, idxf1[0:idxf1_len].to(device=device), out=in_feat1[0:idxf1_len])
+                # th.index_select(train_labels, 0, idxl1[0:idxl1_len].to(device=device), out=in_label1[0:idxl1_len])
+                in_feat1 =  dgl.utils.gather_pinned_tensor_rows(train_nfeat,  idxf1[0:idxf1_len])
+                in_label1 = dgl.utils.gather_pinned_tensor_rows(train_labels, idxl1[0:idxl1_len])
             else:
-                th.index_select(train_nfeat, 0, idxf2[0:idxf2_len].to(device=device), out=in_feat2[0:idxf2_len])
-                th.index_select(train_labels, 0, idxl2[0:idxl2_len].to(device=device), out=in_label2[0:idxl2_len])
+                # th.index_select(train_nfeat, 0, idxf2[0:idxf2_len].to(device=device), out=in_feat2[0:idxf2_len])
+                # th.index_select(train_labels, 0, idxl2[0:idxl2_len].to(device=device), out=in_label2[0:idxl2_len])
+                in_feat2 =  dgl.utils.gather_pinned_tensor_rows(train_nfeat,  idxf2[0:idxf2_len])
+                in_label2 = dgl.utils.gather_pinned_tensor_rows(train_labels, idxl2[0:idxl2_len])
             flag = (flag == False)
             th.cuda.synchronize()
             event2.set()
@@ -170,19 +176,11 @@ def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, 
     if args.gpu >= 0:
         train_g = train_g.to(device)
         train_nid = train_nid.to(device)
-        dataloader = dgl.dataloading.NodeDataLoader(
+        dataloader = dgl.dataloading.DataLoader(
             train_g,
             train_nid,
             sampler,
             device=device,
-            batch_size=args.batch_size,
-            shuffle=True,
-            drop_last=False)
-    else:
-        dataloader = dgl.dataloading.NodeDataLoader(
-            train_g,
-            train_nid,
-            sampler,
             batch_size=args.batch_size,
             shuffle=True,
             drop_last=False)
@@ -220,7 +218,7 @@ def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, 
     # ------------------------------------------------------
     # Prologue done
 
-    # Training loop
+
     avg = 0
     iter_tput = []
     for epoch in range(args.num_epochs):
@@ -430,7 +428,7 @@ if __name__ == '__main__':
         time.sleep(4)
 
     print("Run Start")
-    p = mp.Process(target=thread_wrapped_func(run),
+    p = ctx.Process(target=run,
                     args=(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, idxf2_len, idxl1_len, idxl2_len, event1, event2))
     p.start()
 
