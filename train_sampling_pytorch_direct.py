@@ -14,15 +14,10 @@ import utils
 
 
 from utils import thread_wrapped_func
-from load_graph import load_reddit, inductive_split,load_ogb, SAGE
+from load_graph import load_reddit, inductive_split,load_ogb, SAGE,compute_acc
 
-def compute_acc(pred, labels):
-    """
-    Compute the accuracy of prediction given the labels.
-    """
-    return (th.argmax(pred, dim=1) == labels).float().sum() / len(pred)
 
-def evaluate(model, g, nfeat, labels, val_nid, device):
+def evaluate(model, g, nfeat, labels, val_nid, device,args):
     """
     Evaluate the model on the validation set specified by ``val_nid``.
     g : The entire graph.
@@ -33,7 +28,7 @@ def evaluate(model, g, nfeat, labels, val_nid, device):
     """
     model.eval()
     with th.no_grad():
-        pred = model.inference(g, nfeat, device)
+        pred = model.inference(g, nfeat, device,args)
     model.train()
     return compute_acc(pred[val_nid], labels[val_nid])
 
@@ -91,9 +86,9 @@ def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, 
     train_mask = train_g.ndata['train_mask']
     val_mask = val_g.ndata['val_mask']
     test_mask = ~(test_g.ndata['train_mask'] | test_g.ndata['val_mask'])
-    train_nid = train_mask.nonzero().squeeze()
-    val_nid = val_mask.nonzero().squeeze()
-    test_nid = test_mask.nonzero().squeeze()
+    train_nid = train_mask.nonzero(as_tuple=False).squeeze()
+    val_nid = val_mask.nonzero(as_tuple=False).squeeze()
+    test_nid = test_mask.nonzero(as_tuple=False).squeeze()
     sampler = dgl.dataloading.MultiLayerNeighborSampler(
         [int(fanout) for fanout in args.fan_out.split(',')])
     if args.gpu >= 0:
@@ -157,7 +152,7 @@ def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, 
         tic = time.time()
 
         # Loop dataloader to sample the computation dependency graph as a list of blocks.
-        for step, (input_nodes, seeds, blocks_next) in enumerate(dataloader):
+        for step, (input_nodes, seeds, blocks_next) in enumerate(dataloader): # 这个sample和gather就并行了. 
             tic_step = time.time()
 
             # Send node indices for the next minibatch to the producer
@@ -175,7 +170,7 @@ def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, 
             event1.set()
 
             event2.wait() # wait index select,gather features to GPU
-            event2.clear()
+            event2.clear()  # gather准备好了就可以train 了.            
 
             # Load the input features as well as output labels
             if not flag:
@@ -252,9 +247,9 @@ def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, 
             avg += toc - tic
         if epoch % args.eval_every == 0 and epoch != 0:
             eval_acc = evaluate(
-                model, val_g, val_nfeat, val_labels, val_nid, device)
+                model, val_g, val_nfeat, val_labels, val_nid, device,args)
             test_acc = evaluate(
-                model, test_g, test_nfeat, test_labels, test_nid, device)
+                model, test_g, test_nfeat, test_labels, test_nid, device,args)
             print('Eval Acc {:.4f}'.format(eval_acc))
             print('Test Acc: {:.4f}'.format(test_acc))
 
@@ -274,7 +269,7 @@ if __name__ == '__main__':
     argparser.add_argument('--fan-out', type=str, default='10,25')
     argparser.add_argument('--batch-size', type=int, default=1000)
     argparser.add_argument('--log-every', type=int, default=20)
-    argparser.add_argument('--eval-every', type=int, default=5)
+    argparser.add_argument('--eval-every', type=int, default=1)
     argparser.add_argument('--lr', type=float, default=0.003)
     argparser.add_argument('--dropout', type=float, default=0.5)
     argparser.add_argument('--num-workers', type=int, default=4,

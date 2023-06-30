@@ -12,7 +12,8 @@ import argparse
 import tqdm
 import utils
 import functools
-from load_graph import load_reddit, inductive_split,SAGE
+from load_graph import load_reddit, inductive_split,SAGE,compute_acc
+
 
 
 def run(args, device,g):
@@ -21,6 +22,7 @@ def run(args, device,g):
     train_g, val_g, test_g = inductive_split(g)
     train_mask = train_g.ndata['train_mask']
     val_mask = val_g.ndata['val_mask']
+    val_nid = val_mask.nonzero(as_tuple=False).squeeze()
     train_nid = train_mask.nonzero(as_tuple=False).squeeze()
     sampler = dgl.dataloading.MultiLayerNeighborSampler(
         [int(fanout) for fanout in args.fan_out.split(',')])
@@ -47,6 +49,7 @@ def run(args, device,g):
     feat_dimension = [args.batch_size * fanout_max, nfeat.shape[1]]
     in_feat1 = th.zeros(feat_dimension, device=device)
     for epoch in range(args.num_epochs):
+        model.train()
         tic = time.time()
 
         for step, (input_nodes, seeds, blocks_next) in enumerate(dataloader):
@@ -63,6 +66,12 @@ def run(args, device,g):
 
         toc = time.time()
         print('Epoch Time(s): {:.4f}'.format(toc - tic))
+        model.eval()
+        with th.no_grad():
+            pred = model.inference(val_g, nfeat, device,args)
+        eval_acc = compute_acc(pred[val_nid], labels[val_nid])
+        print('Eval Acc {:.4f}'.format(eval_acc)) 
+
 
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser("multi-gpu training")
