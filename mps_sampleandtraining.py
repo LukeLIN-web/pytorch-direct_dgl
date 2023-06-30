@@ -11,7 +11,7 @@ import math
 import argparse
 import tqdm
 import utils
-
+import functools
 from load_graph import load_reddit, inductive_split,SAGE
 
 
@@ -40,35 +40,36 @@ def run(args, device,g):
         shuffle=True,
         drop_last=False)
 
+    train_nfeat = train_nfeat.to(device="unified")
+    train_labels = train_labels.to(device="unified")
+    fanout_max = functools.reduce(lambda x, y: x * int(y), args.fan_out.split(','), 1)
+
     model = SAGE(train_nfeat.shape[1], args.num_hidden, n_classes, args.num_layers, F.relu, args.dropout)
     model = model.to(device)
     loss_fcn = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     avg = 0
-    iter_tput = []
+    feat_dimension = [args.batch_size * fanout_max, train_nfeat.shape[1]]
+    in_feat1 = th.zeros(feat_dimension, device=device)
+    
     for epoch in range(args.num_epochs):
         tic = time.time()
 
         # Loop dataloader to sample the computation dependency graph as a list of blocks.
         for step, (input_nodes, seeds, blocks_next) in enumerate(dataloader):
-            tic_step = time.time()
-
-            blocks_temp = blocks_next # 训练的同时采样. 训练完了获得采样的结果. 
+            idxf1_len = len(input_nodes)
+            blocks_temp = blocks_next 
             blocks = [block.int().to(device) for block in blocks_temp]
-            batch_feats =  train_nfeat[input_nodes].to(device)
-            batch_labels =  train_labels[seeds].to(device)
+            # batch_feats =  train_nfeat[input_nodes].to(device)
+            # batch_labels =  train_labels[seeds].to(device)
+            batch_feats = th.index_select(train_nfeat, 0, input_nodes.to(device=device), out=in_feat1[0:idxf1_len])
+            batch_labels = train_labels[seeds].to(device)
             batch_pred = model(blocks, batch_feats)
             loss = loss_fcn(batch_pred, batch_labels)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            
-            # epochtime = (time.time() - tic_step)
-            # iter_tput.append(len(seeds) / epochtime)
-            # if step % args.log_every == 0:
-            #     print('Epoch {:05d} | Step {:05d} | Loss {:.4f} | Train Acc {:.4f} | Speed (samples/sec) {:.4f} | GPU {:.1f} MB'.format(
-            #         epoch, step, loss.item(), acc.item(), np.mean(iter_tput[3:]), th.cuda.max_memory_allocated() / 1000000))
 
         toc = time.time()
         print('Epoch Time(s): {:.4f}'.format(toc - tic))
