@@ -1,27 +1,47 @@
-
+import dgl
 import numpy as np
 import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import torch.multiprocessing as mp
+import dgl.nn.pytorch as dglnn
 import time
 import math
 import argparse
-from torch.nn.parallel import DistributedDataParallel
 import tqdm
 import utils
 
-from utils import thread_wrapped_func
+from load_graph import load_reddit, inductive_split,SAGE
 
 
-def producer(q, ):
-
-#### Entry point
-
-def run(q, args, device):
+def run(q, args, device, data):
     th.cuda.set_device(device)
+    n_classes, train_g, val_g, test_g = data
 
+    train_mask = train_g.ndata['train_mask']
+    val_mask = val_g.ndata['val_mask']
+    test_mask = ~(test_g.ndata['train_mask'] | test_g.ndata['val_mask'])
+    train_nid = train_mask.nonzero().squeeze()
+    val_nid = val_mask.nonzero().squeeze()
+    test_nid = test_mask.nonzero().squeeze()
+    sampler = dgl.dataloading.MultiLayerNeighborSampler(
+        [int(fanout) for fanout in args.fan_out.split(',')])
+    train_g = train_g.to(device)
+    train_nid = train_nid.to(device)
+    dataloader = dgl.dataloading.NodeDataLoader(
+        train_g,
+        train_nid,
+        sampler,
+        device=device,
+        batch_size=args.batch_size,
+        shuffle=True,
+        drop_last=False)
+
+    model = SAGE(in_feats, args.num_hidden, n_classes, args.num_layers, F.relu, args.dropout)
+    model = model.to(device)
+    loss_fcn = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
 
 if __name__ == '__main__':
@@ -47,43 +67,9 @@ if __name__ == '__main__':
     device = th.device('cuda:%d' % args.gpu)
     mps = list(map(str, args.mps.split(',')))
 
-    # If MPS values are given, then setup MPS
-    if float(mps[0]) != 0:
-        user_id = utils.mps_get_user_id()
-        utils.mps_daemon_start()
-        utils.mps_server_start(user_id)
-        server_pid = utils.mps_get_server_pid()
-        time.sleep(4)
-
-    ctx = mp.get_context('spawn')
-
-    if float(mps[0]) != 0:
-        utils.mps_set_active_thread_percentage(server_pid, mps[0])
-        # Just in case we add a timer to make sure MPS setup is done before we launch producer
-        time.sleep(4)
-
-    # TODO: shared structure declarations can be futher simplified
-    q = ctx.SimpleQueue()
-
-    # Synchornization signals
-    event1 = ctx.Event()
-    event2 = ctx.Event()
-
-    print("Producer Start")
-    producer_inst = ctx.Process(target=producer,
-                    args=(q, device))
-    producer_inst.start()
-
-    if float(mps[0]) != 0:
-        # Just in case we add timers to make sure MPS setup is done before we launch training
-        time.sleep(8)
-        utils.mps_set_active_thread_percentage(server_pid, mps[1])
-        time.sleep(4)
-
     print("Run Start")
-    p = mp.Process(target=thread_wrapped_func(run),
-                    args=(q, args, device))
+    p = mp.Process(target=run,
+                    args=(args, device))
     p.start()
 
     p.join()
-    producer_inst.join()

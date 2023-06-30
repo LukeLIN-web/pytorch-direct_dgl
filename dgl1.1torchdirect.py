@@ -183,7 +183,8 @@ def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, 
             device=device,
             batch_size=args.batch_size,
             shuffle=True,
-            drop_last=False)
+            drop_last=False,
+            use_uva=True)
 
     model = SAGE(in_feats, args.num_hidden, n_classes, args.num_layers, F.relu, args.dropout)
     model = model.to(device)
