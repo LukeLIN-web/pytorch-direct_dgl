@@ -15,10 +15,10 @@ import utils
 from load_graph import load_reddit, inductive_split,SAGE
 
 
-def run(q, args, device, data):
+def run(args, device,g):
     th.cuda.set_device(device)
-    n_classes, train_g, val_g, test_g = data
-
+    
+    train_g, val_g, test_g = inductive_split(g)
     train_mask = train_g.ndata['train_mask']
     val_mask = val_g.ndata['val_mask']
     test_mask = ~(test_g.ndata['train_mask'] | test_g.ndata['val_mask'])
@@ -29,6 +29,8 @@ def run(q, args, device, data):
         [int(fanout) for fanout in args.fan_out.split(',')])
     train_g = train_g.to(device)
     train_nid = train_nid.to(device)
+    train_nfeat = val_nfeat = test_nfeat = g.ndata.pop('features')
+    train_labels = val_labels = test_labels = g.ndata.pop('labels')
     dataloader = dgl.dataloading.NodeDataLoader(
         train_g,
         train_nid,
@@ -38,11 +40,42 @@ def run(q, args, device, data):
         shuffle=True,
         drop_last=False)
 
-    model = SAGE(in_feats, args.num_hidden, n_classes, args.num_layers, F.relu, args.dropout)
+    model = SAGE(train_nfeat.shape[1], args.num_hidden, n_classes, args.num_layers, F.relu, args.dropout)
     model = model.to(device)
     loss_fcn = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    avg = 0
+    iter_tput = []
+    for epoch in range(args.num_epochs):
+        tic = time.time()
 
+        # Loop dataloader to sample the computation dependency graph as a list of blocks.
+        for step, (input_nodes, seeds, blocks_next) in enumerate(dataloader):
+            tic_step = time.time()
+
+            blocks_temp = blocks_next # 训练的同时采样. 训练完了获得采样的结果. 
+            blocks = [block.int().to(device) for block in blocks_temp]
+            batch_feats =  train_nfeat[input_nodes].to(device)
+            batch_labels =  train_labels[seeds].to(device)
+            batch_pred = model(blocks, batch_feats)
+            loss = loss_fcn(batch_pred, batch_labels)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            
+            # epochtime = (time.time() - tic_step)
+            # iter_tput.append(len(seeds) / epochtime)
+            # if step % args.log_every == 0:
+            #     print('Epoch {:05d} | Step {:05d} | Loss {:.4f} | Train Acc {:.4f} | Speed (samples/sec) {:.4f} | GPU {:.1f} MB'.format(
+            #         epoch, step, loss.item(), acc.item(), np.mean(iter_tput[3:]), th.cuda.max_memory_allocated() / 1000000))
+
+        toc = time.time()
+        print('Epoch Time(s): {:.4f}'.format(toc - tic))
+        if epoch >= 5:
+            avg += toc - tic
+
+    print('Avg epoch time: {}'.format(avg / (epoch - 4)))
 
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser("multi-gpu training")
@@ -66,10 +99,12 @@ if __name__ == '__main__':
 
     device = th.device('cuda:%d' % args.gpu)
     mps = list(map(str, args.mps.split(',')))
+    g, n_classes = load_reddit()
 
     print("Run Start")
-    p = mp.Process(target=run,
-                    args=(args, device))
-    p.start()
+    run(args, device,g)
+    # p = mp.Process(target=run,
+    #                 args=(args, device,g))
+    # p.start()
 
-    p.join()
+    # p.join()
