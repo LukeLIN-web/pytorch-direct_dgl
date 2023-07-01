@@ -62,7 +62,7 @@ def producer(q, idxf1, idxf2, idxl1, idxl2, idxf1_len, idxf2_len, idxl1_len, idx
             event2.set()
 
 
-def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, idxf2_len, idxl1_len, idxl2_len, event1, event2):
+def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, idxf2_len, idxl1_len, idxl2_len, event1, event2,feat,labels):
     th.cuda.set_device(device)
     n_classes, train_g, val_g, test_g = data
 
@@ -80,6 +80,15 @@ def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, 
         train_g,
         train_nid,
         sampler,
+        device=device,
+        batch_size=args.batch_size,
+        shuffle=True,
+        drop_last=False)
+    
+    val_loader = dgl.dataloading.DataLoader(
+        val_g,
+        th.arange(val_g.num_nodes()),
+        dgl.dataloading.MultiLayerFullNeighborSampler(1),
         device=device,
         batch_size=args.batch_size,
         shuffle=True,
@@ -220,7 +229,7 @@ def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, 
             avg += toc - tic
         if epoch % args.eval_every == 0 and epoch != 0:
             eval_acc = evaluate(
-                model, val_g, feat, labels, val_nid, device,args)
+                model, val_g, feat, labels, val_nid, device,args,val_loader)
             print('Eval Acc {:.4f}'.format(eval_acc))
             # test_acc = evaluate(
             #     model, test_g, feat, labels, test_nid, device,args)
@@ -329,7 +338,7 @@ if __name__ == '__main__':
 
     print("Run Start")
     p = ctx.Process(target=run,
-                    args=(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, idxf2_len, idxl1_len, idxl2_len, event1, event2))
+                    args=(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, idxf2_len, idxl1_len, idxl2_len, event1, event2,feat,labels))
     p.start()
 
     p.join()

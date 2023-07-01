@@ -14,7 +14,8 @@ import utils
 
 
 from utils import thread_wrapped_func
-from load_graph import load_reddit, inductive_split,load_ogb, SAGE,compute_acc, evaluate
+from load_graph import load_reddit, inductive_split,load_ogb, SAGE,compute_acc,evaluate
+
 
 
 def producer(q, idxf1, idxf2, idxl1, idxl2, idxf1_len, idxf2_len, idxl1_len, idxl2_len, event1, event2, train_nfeat, train_labels, feat_dimension, label_dimension, device):
@@ -79,6 +80,15 @@ def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, 
         batch_size=args.batch_size,
         shuffle=True,
         drop_last=False)
+    
+    val_loader = dgl.dataloading.NodeDataLoader(
+        g,
+        th.arange(g.num_nodes()),
+        dgl.dataloading.MultiLayerFullNeighborSampler(1),
+        batch_size=args.batch_size,
+        shuffle=True,
+        drop_last=False,
+        num_workers=args.num_workers)
 
     model = SAGE(in_feats, args.num_hidden, n_classes, args.num_layers, F.relu, args.dropout)
     model = model.to(device)
@@ -215,7 +225,7 @@ def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, 
             avg += toc - tic
         if epoch % args.eval_every == 0 and epoch != 0:
             eval_acc = evaluate(
-                model, val_g, feat, labels, val_nid, device,args)
+                model, val_g, feat, labels, val_nid, device,args,val_loader)
             print('Eval Acc {:.4f}'.format(eval_acc))
             # test_acc = evaluate(
             #     model, test_g, feat, labels, test_nid, device,args)

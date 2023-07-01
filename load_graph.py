@@ -10,7 +10,7 @@ import utils
 
 
 
-def evaluate(model, g, nfeat, labels, val_nid, device,args):
+def evaluate(model, g, nfeat, labels, val_nid, device,args,dataloader):
     """
     Evaluate the model on the validation set specified by ``val_nid``.
     g : The entire graph.
@@ -21,7 +21,7 @@ def evaluate(model, g, nfeat, labels, val_nid, device,args):
     """
     model.eval()
     with th.no_grad():
-        pred = model.inference(g, nfeat, device,args)
+        pred = model.inference(g, nfeat, device,args,dataloader)
     model.train()
     return compute_acc(pred[val_nid], labels[val_nid])
 
@@ -63,7 +63,7 @@ class SAGE(nn.Module):
                 h = self.dropout(h)
         return h
 
-    def inference(self, g, x, device,args):
+    def inference(self, g, x, device,args,val_loader):
         """
         Inference with the GraphSAGE model on full neighbors (i.e. without neighbor sampling).
         g : the entire graph.
@@ -80,20 +80,8 @@ class SAGE(nn.Module):
         for l, layer in enumerate(self.layers):
             y = th.zeros(g.num_nodes(), self.n_hidden if l != len(self.layers) - 1 else self.n_classes)
 
-            sampler = dgl.dataloading.MultiLayerFullNeighborSampler(1)
-            dataloader = dgl.dataloading.NodeDataLoader(
-                g,
-                th.arange(g.num_nodes()),
-                sampler,
-                batch_size=args.batch_size,
-                shuffle=True,
-                drop_last=False,
-                num_workers=args.num_workers)
-
-            for input_nodes, output_nodes, blocks in tqdm.tqdm(dataloader):
-                block = blocks[0]
-
-                block = block.int().to(device)
+            for input_nodes, output_nodes, blocks in tqdm.tqdm(val_loader):
+                block = blocks[0].int().to(device)
                 h = x[input_nodes].to(device)
                 h = layer(block, h)
                 if l != len(self.layers) - 1:
