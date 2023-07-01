@@ -247,11 +247,11 @@ def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, 
             avg += toc - tic
         if epoch % args.eval_every == 0 and epoch != 0:
             eval_acc = evaluate(
-                model, val_g, val_nfeat, val_labels, val_nid, device,args)
-            test_acc = evaluate(
-                model, test_g, test_nfeat, test_labels, test_nid, device,args)
+                model, val_g, feat, labels, val_nid, device,args)
             print('Eval Acc {:.4f}'.format(eval_acc))
-            print('Test Acc: {:.4f}'.format(test_acc))
+            # test_acc = evaluate(
+            #     model, test_g, feat, labels, test_nid, device,args)
+            # print('Test Acc: {:.4f}'.format(test_acc))
 
     print('Avg epoch time: {}'.format(avg / (epoch - 4)))
 
@@ -283,7 +283,6 @@ if __name__ == '__main__':
     device = th.device('cuda:0') 
     mps = list(map(str, args.mps.split(',')))
 
-    # If MPS values are given, then setup MPS
     if float(mps[0]) != 0:
         user_id = utils.mps_get_user_id()
         utils.mps_daemon_start()
@@ -308,15 +307,15 @@ if __name__ == '__main__':
 
     data = n_classes, train_g, val_g, test_g
 
-    train_nfeat = val_nfeat = test_nfeat = g.ndata.pop('features').share_memory_()
-    train_labels = val_labels = test_labels = g.ndata.pop('labels').share_memory_()
-    in_feats = train_nfeat.shape[1]
+    feat = g.ndata.pop('features').share_memory_()
+    labels = g.ndata.pop('labels').share_memory_()
+    in_feats = feat.shape[1]
 
     fanout_max = 1
     for fanout in args.fan_out.split(','):
         fanout_max = fanout_max * int(fanout)
 
-    feat_dimension = [args.batch_size * fanout_max, train_nfeat.shape[1]]
+    feat_dimension = [args.batch_size * fanout_max, in_feats]
     label_dimension = [args.batch_size]
 
     ctx = mp.get_context('spawn')
@@ -345,7 +344,7 @@ if __name__ == '__main__':
 
     print("Producer Start")
     producer_inst = ctx.Process(target=producer,
-                    args=(q, idxf1, idxf2, idxl1, idxl2, idxf1_len, idxf2_len, idxl1_len, idxl2_len, event1, event2, train_nfeat, train_labels, feat_dimension, label_dimension, device))
+                    args=(q, idxf1, idxf2, idxl1, idxl2, idxf1_len, idxf2_len, idxl1_len, idxl2_len, event1, event2, feat, labels, feat_dimension, label_dimension, device))
     producer_inst.start()
 
     if float(mps[0]) != 0:
