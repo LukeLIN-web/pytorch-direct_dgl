@@ -32,14 +32,6 @@ def evaluate(model, g, nfeat, labels, val_nid, device,args):
     model.train()
     return compute_acc(pred[val_nid], labels[val_nid])
 
-def load_subtensor(nfeat, labels, seeds, input_nodes, device):
-    """
-    Extracts features and labels for a subset of nodes.
-    """
-    batch_inputs = nfeat[input_nodes].to(device)
-    batch_labels = labels[seeds].to(device)
-    return batch_inputs, batch_labels
-
 def producer(q, idxf1, idxf2, idxl1, idxl2, idxf1_len, idxf2_len, idxl1_len, idxl2_len, event1, event2, train_nfeat, train_labels, feat_dimension, label_dimension, device):
     th.cuda.set_device(device)
 
@@ -197,8 +189,8 @@ def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, 
             iter_tput.append(len(seeds) / epochtime)
             if step % args.log_every == 0:
                 acc = compute_acc(batch_pred, batch_labels)
-                print('Epoch {:05d} | Step {:05d} | Loss {:.4f} | Train Acc {:.4f} | Speed (samples/sec) {:.4f} | GPU {:.1f} MB'.format(
-                    epoch, step, loss.item(), acc.item(), np.mean(iter_tput[3:]), th.cuda.max_memory_allocated() / 1000000))
+                print('Epoch {:05d} | Step {:05d} | Loss {:.4f} | Train Acc {:.4f} | Speed (samples/sec) {:.4f}'.format(
+                    epoch, step, loss.item(), acc.item(), np.mean(iter_tput[3:])))
 
         # A prologue for the next epoch
         # ------------------------------------------------------
