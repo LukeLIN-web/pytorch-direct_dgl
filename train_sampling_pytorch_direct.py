@@ -14,23 +14,8 @@ import utils
 
 
 from utils import thread_wrapped_func
-from load_graph import load_reddit, inductive_split,load_ogb, SAGE,compute_acc
+from load_graph import load_reddit, inductive_split,load_ogb, SAGE,compute_acc, evaluate
 
-
-def evaluate(model, g, nfeat, labels, val_nid, device,args):
-    """
-    Evaluate the model on the validation set specified by ``val_nid``.
-    g : The entire graph.
-    inputs : The features of all the nodes.
-    labels : The labels of all the nodes.
-    val_nid : A node ID tensor indicating which nodes do we actually compute the accuracy for.
-    device : The GPU device to evaluate on.
-    """
-    model.eval()
-    with th.no_grad():
-        pred = model.inference(g, nfeat, device,args)
-    model.train()
-    return compute_acc(pred[val_nid], labels[val_nid])
 
 def producer(q, idxf1, idxf2, idxl1, idxl2, idxf1_len, idxf2_len, idxl1_len, idxl2_len, event1, event2, train_nfeat, train_labels, feat_dimension, label_dimension, device):
     th.cuda.set_device(device)

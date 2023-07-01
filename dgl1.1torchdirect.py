@@ -14,28 +14,7 @@ import utils
 
 
 from utils import thread_wrapped_func
-from load_graph import load_reddit, inductive_split,load_ogb,SAGE
-
-def compute_acc(pred, labels):
-    """
-    Compute the accuracy of prediction given the labels.
-    """
-    return (th.argmax(pred, dim=1) == labels).float().sum() / len(pred)
-
-def evaluate(model, g, nfeat, labels, val_nid, device):
-    """
-    Evaluate the model on the validation set specified by ``val_nid``.
-    g : The entire graph.
-    inputs : The features of all the nodes.
-    labels : The labels of all the nodes.
-    val_nid : A node ID tensor indicating which nodes do we actually compute the accuracy for.
-    device : The GPU device to evaluate on.
-    """
-    model.eval()
-    with th.no_grad():
-        pred = model.inference(g, nfeat, device)
-    model.train()
-    return compute_acc(pred[val_nid], labels[val_nid])
+from load_graph import load_reddit, inductive_split,load_ogb,SAGE,compute_acc, evaluate
 
 def producer(q, idxf1, idxf2, idxl1, idxl2, idxf1_len, idxf2_len, idxl1_len, idxl2_len, event1, event2, train_nfeat, train_labels, feat_dimension, label_dimension, device):
     th.cuda.set_device(device)
@@ -263,7 +242,7 @@ if __name__ == '__main__':
     argparser.add_argument('--fan-out', type=str, default='10,25')
     argparser.add_argument('--batch-size', type=int, default=1000)
     argparser.add_argument('--log-every', type=int, default=20)
-    argparser.add_argument('--eval-every', type=int, default=5)
+    argparser.add_argument('--eval-every', type=int, default=1)
     argparser.add_argument('--lr', type=float, default=0.003)
     argparser.add_argument('--dropout', type=float, default=0.5)
     argparser.add_argument('--num-workers', type=int, default=4,
@@ -302,15 +281,15 @@ if __name__ == '__main__':
 
     data = n_classes, train_g, val_g, test_g
 
-    feat = val_nfeat = test_nfeat = g.ndata.pop('features').share_memory_()
-    labels = val_labels = test_labels = g.ndata.pop('labels').share_memory_()
+    feat = g.ndata.pop('features').share_memory_()
+    labels = g.ndata.pop('labels').share_memory_()
     in_feats = feat.shape[1]
 
     fanout_max = 1
     for fanout in args.fan_out.split(','):
         fanout_max = fanout_max * int(fanout)
 
-    feat_dimension = [args.batch_size * fanout_max, feat.shape[1]]
+    feat_dimension = [args.batch_size * fanout_max, in_feats]
     label_dimension = [args.batch_size]
 
     ctx = mp.get_context('spawn')

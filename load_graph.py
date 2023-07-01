@@ -9,11 +9,30 @@ import tqdm
 import utils
 
 
+
+def evaluate(model, g, nfeat, labels, val_nid, device,args):
+    """
+    Evaluate the model on the validation set specified by ``val_nid``.
+    g : The entire graph.
+    inputs : The features of all the nodes.
+    labels : The labels of all the nodes.
+    val_nid : A node ID tensor indicating which nodes do we actually compute the accuracy for.
+    device : The GPU device to evaluate on.
+    """
+    model.eval()
+    with th.no_grad():
+        pred = model.inference(g, nfeat, device,args)
+    model.train()
+    return compute_acc(pred[val_nid], labels[val_nid])
+
+
 def compute_acc(pred, labels):
     """
     Compute the accuracy of prediction given the labels.
     """
     return (th.argmax(pred, dim=1) == labels).float().sum() / len(pred)
+
+
 
 class SAGE(nn.Module):
     def __init__(self,
