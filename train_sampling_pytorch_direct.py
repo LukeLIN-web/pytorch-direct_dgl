@@ -83,25 +83,17 @@ def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, 
     test_nid = test_mask.nonzero(as_tuple=False).squeeze()
     sampler = dgl.dataloading.MultiLayerNeighborSampler(
         [int(fanout) for fanout in args.fan_out.split(',')])
-    if args.gpu >= 0:
-        train_g = train_g.to(device)
-        train_nid = train_nid.to(device)
-        dataloader = dgl.dataloading.NodeDataLoader(
-            train_g,
-            train_nid,
-            sampler,
-            device=device,
-            batch_size=args.batch_size,
-            shuffle=True,
-            drop_last=False)
-    else:
-        dataloader = dgl.dataloading.NodeDataLoader(
-            train_g,
-            train_nid,
-            sampler,
-            batch_size=args.batch_size,
-            shuffle=True,
-            drop_last=False)
+
+    train_g = train_g.to(device)
+    train_nid = train_nid.to(device)
+    dataloader = dgl.dataloading.NodeDataLoader(
+        train_g,
+        train_nid,
+        sampler,
+        device=device,
+        batch_size=args.batch_size,
+        shuffle=True,
+        drop_last=False)
 
     model = SAGE(in_feats, args.num_hidden, n_classes, args.num_layers, F.relu, args.dropout)
     model = model.to(device)
@@ -137,7 +129,6 @@ def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, 
     # ------------------------------------------------------
     # Prologue done
 
-    # Training loop
     avg = 0
     iter_tput = []
     for epoch in range(args.num_epochs):

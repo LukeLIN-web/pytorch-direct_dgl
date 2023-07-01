@@ -43,8 +43,8 @@ def producer(q, idxf1, idxf2, idxl1, idxl2, idxf1_len, idxf2_len, idxl1_len, idx
     # Map input tensors into GPU address
     # train_nfeat = train_nfeat.to(device="unified")
     # train_labels = train_labels.to(device="unified")
-    train_nfeat = dgl.utils.pin_memory_inplace(train_nfeat)
-    train_labels = dgl.utils.pin_memory_inplace(train_labels)
+    feat_handler = dgl.utils.pin_memory_inplace(train_nfeat)
+    labels_handler = dgl.utils.pin_memory_inplace(train_labels)
 
     # Create GPU-side ping pong buffers
     in_feat1 = th.zeros(feat_dimension, device=device)
@@ -70,14 +70,15 @@ def producer(q, idxf1, idxf2, idxl1, idxl2, idxf1_len, idxf2_len, idxl1_len, idx
             if flag:
                 # th.index_select(train_nfeat, 0, idxf1[0:idxf1_len].to(device=device), out=in_feat1[0:idxf1_len])
                 # th.index_select(train_labels, 0, idxl1[0:idxl1_len].to(device=device), out=in_label1[0:idxl1_len])
-                in_feat1 =  dgl.utils.gather_pinned_tensor_rows(train_nfeat,  idxf1[0:idxf1_len])
-                in_label1 = dgl.utils.gather_pinned_tensor_rows(train_labels, idxl1[0:idxl1_len])
+                in_feat1 =  dgl.utils.gather_pinned_tensor_rows(train_nfeat,  idxf1[0:idxf1_len].to(device=device))
+                in_label1 = dgl.utils.gather_pinned_tensor_rows(train_labels, idxl1[0:idxl1_len].to(device=device))
             else:
                 # th.index_select(train_nfeat, 0, idxf2[0:idxf2_len].to(device=device), out=in_feat2[0:idxf2_len])
                 # th.index_select(train_labels, 0, idxl2[0:idxl2_len].to(device=device), out=in_label2[0:idxl2_len])
-                in_feat2 =  dgl.utils.gather_pinned_tensor_rows(train_nfeat,  idxf2[0:idxf2_len])
-                in_label2 = dgl.utils.gather_pinned_tensor_rows(train_labels, idxl2[0:idxl2_len])
+                in_feat2 =  dgl.utils.gather_pinned_tensor_rows(train_nfeat,  idxf2[0:idxf2_len].to(device=device))
+                in_label2 = dgl.utils.gather_pinned_tensor_rows(train_labels, idxl2[0:idxl2_len].to(device=device))
             flag = (flag == False)
+            # print("one mini batch gather done")
             th.cuda.synchronize()
             event2.set()
 
@@ -94,18 +95,16 @@ def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, 
     test_nid = test_mask.nonzero().squeeze()
     sampler = dgl.dataloading.MultiLayerNeighborSampler(
         [int(fanout) for fanout in args.fan_out.split(',')])
-    if args.gpu >= 0:
-        train_g = train_g.to(device)
-        train_nid = train_nid.to(device)
-        dataloader = dgl.dataloading.DataLoader(
-            train_g,
-            train_nid,
-            sampler,
-            device=device,
-            batch_size=args.batch_size,
-            shuffle=True,
-            drop_last=False,
-            use_uva=True)
+    train_g = train_g.to(device)
+    train_nid = train_nid.to(device)
+    dataloader = dgl.dataloading.DataLoader(
+        train_g,
+        train_nid,
+        sampler,
+        device=device,
+        batch_size=args.batch_size,
+        shuffle=True,
+        drop_last=False)
 
     model = SAGE(in_feats, args.num_hidden, n_classes, args.num_layers, F.relu, args.dropout)
     model = model.to(device)
@@ -242,11 +241,11 @@ def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, 
             avg += toc - tic
         if epoch % args.eval_every == 0 and epoch != 0:
             eval_acc = evaluate(
-                model, val_g, val_nfeat, val_labels, val_nid, device)
-            test_acc = evaluate(
-                model, test_g, test_nfeat, test_labels, test_nid, device)
+                model, val_g, feat, labels, val_nid, device,args)
             print('Eval Acc {:.4f}'.format(eval_acc))
-            print('Test Acc: {:.4f}'.format(test_acc))
+            # test_acc = evaluate(
+            #     model, test_g, feat, labels, test_nid, device,args)
+            # print('Test Acc: {:.4f}'.format(test_acc))
 
     print('Avg epoch time: {}'.format(avg / (epoch - 4)))
 
@@ -303,15 +302,15 @@ if __name__ == '__main__':
 
     data = n_classes, train_g, val_g, test_g
 
-    train_nfeat = val_nfeat = test_nfeat = g.ndata.pop('features').share_memory_()
-    train_labels = val_labels = test_labels = g.ndata.pop('labels').share_memory_()
-    in_feats = train_nfeat.shape[1]
+    feat = val_nfeat = test_nfeat = g.ndata.pop('features').share_memory_()
+    labels = val_labels = test_labels = g.ndata.pop('labels').share_memory_()
+    in_feats = feat.shape[1]
 
     fanout_max = 1
     for fanout in args.fan_out.split(','):
         fanout_max = fanout_max * int(fanout)
 
-    feat_dimension = [args.batch_size * fanout_max, train_nfeat.shape[1]]
+    feat_dimension = [args.batch_size * fanout_max, feat.shape[1]]
     label_dimension = [args.batch_size]
 
     ctx = mp.get_context('spawn')
@@ -340,7 +339,7 @@ if __name__ == '__main__':
 
     print("Producer Start")
     producer_inst = ctx.Process(target=producer,
-                    args=(q, idxf1, idxf2, idxl1, idxl2, idxf1_len, idxf2_len, idxl1_len, idxl2_len, event1, event2, train_nfeat, train_labels, feat_dimension, label_dimension, device))
+                    args=(q, idxf1, idxf2, idxl1, idxl2, idxf1_len, idxf2_len, idxl1_len, idxl2_len, event1, event2, feat, labels, feat_dimension, label_dimension, device))
     producer_inst.start()
 
     if float(mps[0]) != 0:
