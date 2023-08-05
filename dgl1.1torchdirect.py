@@ -49,7 +49,7 @@ def producer(q, idxf1, idxf2, idxl1, idxl2, idxf1_len, idxf2_len, idxl1_len, idx
             if flag:
                 # th.index_select(train_nfeat, 0, idxf1[0:idxf1_len].to(device=device), out=in_feat1[0:idxf1_len])
                 # th.index_select(train_labels, 0, idxl1[0:idxl1_len].to(device=device), out=in_label1[0:idxl1_len])
-                gather_feat1 =  dgl.utils.gather_pinned_tensor_rows(train_nfeat,  idxf1[0:idxf1_len].to(device=device))
+                gather_feat1 = dgl.utils.gather_pinned_tensor_rows(train_nfeat,  idxf1[0:idxf1_len].to(device=device))
                 in_feat1[0:idxf1_len].copy_(gather_feat1)
                 gather_label1 = dgl.utils.gather_pinned_tensor_rows(train_labels, idxl1[0:idxl1_len].to(device=device))
                 in_label1[0:idxl1_len].copy_(gather_label1)
@@ -153,7 +153,7 @@ def run(q, args, device, data, in_feats, idxf1, idxf2, idxl1, idxl2, idxf1_len, 
                 idxf2_len.fill_(len(input_nodes))
                 idxl2_len.fill_(len(seeds))
 
-            event1.set()
+            event1.set()  # 让他开始 gather
 
             event2.wait() # wait index select,gather features to GPU
             event2.clear()
